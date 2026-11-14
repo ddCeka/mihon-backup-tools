@@ -62,11 +62,25 @@ def parse_proto(buf, start=0, end=None):
     return fields
 
 
-def decode_str(raw_bytes):
-    try:
-        return raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        return ""
+def get_field(fields, field_num, default=None):
+    """Safely extract the first scalar value from a parsed Protobuf field list."""
+    items = fields.get(field_num)
+    if not items:
+        return default
+    return items[0][1]
+
+
+def decode_str(raw_bytes) -> str:
+    if isinstance(raw_bytes, list):
+        if not raw_bytes:
+            return ""
+        raw_bytes = raw_bytes[0][1]
+    elif isinstance(raw_bytes, tuple):
+        raw_bytes = raw_bytes[1]
+
+    if isinstance(raw_bytes, bytes):
+        return raw_bytes.decode("utf-8", errors="replace")
+    return "" if raw_bytes is None else str(raw_bytes)
 
 
 def ms_to_iso(ms):
@@ -183,22 +197,22 @@ def main():
 
     for idx, (_, manga_bytes) in enumerate(manga_entries, start=1):
         m_fields = parse_proto(manga_bytes)
-        source_id = m_fields.get(1, [(0, None)])
-        url = decode_str(m_fields.get(2, [(2, b"")]))
-        title = decode_str(m_fields.get(3, [(2, b"")]))
+        source_id = get_field(m_fields, 1, None)
+        url = decode_str(get_field(m_fields, 2, b""))
+        title = decode_str(get_field(m_fields, 3, b""))
 
         chapters_raw = m_fields.get(16, [])
         chapters = []
 
         for _, ch_bytes in chapters_raw:
             c_fields = parse_proto(ch_bytes)
-            ch_url = decode_str(c_fields.get(1, [(2, b"")]))
-            ch_name = decode_str(c_fields.get(2, [(2, b"")]))
-            scanlator = decode_str(c_fields.get(3, [(2, b"")]))
-            date_fetch = c_fields.get(7, [(0, 0)])
-            date_upload = c_fields.get(8, [(0, 0)])
-            ch_num_raw = c_fields.get(9, [(5, 0)])
-            ch_num = round(struct.unpack("<f", struct.pack("<I", ch_num_raw)), 3)
+            ch_url = decode_str(get_field(c_fields, 1, b""))
+            ch_name = decode_str(get_field(c_fields, 2, b""))
+            scanlator = decode_str(get_field(c_fields, 3, b""))
+            date_fetch = get_field(c_fields, 7, 0)
+            date_upload = get_field(c_fields, 8, 0)
+            ch_num_raw = get_field(c_fields, 9, 0)
+            ch_num = round(struct.unpack("<f", struct.pack("<I", ch_num_raw))[0], 3)
 
             ch_info = {
                 "name": ch_name,
