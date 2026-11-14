@@ -113,8 +113,11 @@ def patch_chapter(orig_ch_bytes, ch_json):
         recs = set_field(recs, 1, 2, ch_json["url"].encode("utf-8"))
     if "name" in ch_json:
         recs = set_field(recs, 2, 2, ch_json["name"].encode("utf-8"))
-    if "scanlator" in ch_json and ch_json["scanlator"] is not None:
-        recs = set_field(recs, 3, 2, ch_json["scanlator"].encode("utf-8"))
+    if "scanlator" in ch_json:
+        if ch_json["scanlator"]:
+            recs = set_field(recs, 3, 2, ch_json["scanlator"].encode("utf-8"))
+        else:
+            recs = [(f, w, v) for f, w, v in recs if f != 3]
     if "date_fetch_ms" in ch_json:
         recs = set_field(recs, 7, 0, int(ch_json["date_fetch_ms"]))
     if "date_upload_ms" in ch_json:
@@ -146,8 +149,6 @@ def patch_manga(orig_manga_bytes, m_json, dedup_mode=None):
                 orig_by_url[val.decode("utf-8", errors="ignore")] = ch_b
                 break
 
-    non_chapter_recs = [(f, w, v) for f, w, v in recs if f != 16]
-
     json_chapters = m_json.get("chapters", [])
     seen_keys = set()
     rebuilt_chapters = []
@@ -173,20 +174,27 @@ def patch_manga(orig_manga_bytes, m_json, dedup_mode=None):
             seen_keys.add(key)
 
         base_bytes = orig_by_url.get(ch_j.get("url", ""))
-        if base_bytes is None and idx < len(orig_chapters):
+        if (
+            base_bytes is None
+            and len(json_chapters) == len(orig_chapters)
+            and idx < len(orig_chapters)
+        ):
             base_bytes = orig_chapters[idx]
 
         rebuilt_chapters.append((16, 2, patch_chapter(base_bytes, ch_j)))
 
-    insert_pos = next(
-        (i for i, (f, _, _) in enumerate(recs) if f == 16),
-        len(non_chapter_recs),
-    )
-    final_recs = (
-        non_chapter_recs[:insert_pos]
-        + rebuilt_chapters
-        + non_chapter_recs[insert_pos:]
-    )
+    final_recs = []
+    inserted = False
+    for f, w, v in recs:
+        if f == 16:
+            if not inserted:
+                final_recs.extend(rebuilt_chapters)
+                inserted = True
+        else:
+            final_recs.append((f, w, v))
+    if not inserted:
+        final_recs.extend(rebuilt_chapters)
+
     return serialize_proto(final_recs), removed_dups
 
 
@@ -306,7 +314,7 @@ def main():
     proto_out = args.output or f"{base}_edited.proto"
     tachibk_out = f"{base}_edited.tachibk"
 
-    print(f"\n{line}")
+    print(f"{line}\n")
     print(" JSON -> PROTO COMPILER" + (" [DRY RUN]" if args.dry_run else ""))
     print(line)
     print(f" Manga   : {len(kept_manga_recs)} kept, {removed_manga} removed")
